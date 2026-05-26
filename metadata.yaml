@@ -1,0 +1,10 @@
+name: astrbot_plugin_newapi_checkin
+display_name: NewAPI 签到+绑定（站长工具）
+desc: 支持 NewAPI 邮箱验证码绑定、QQ 邮箱校验和每日签到额度直充的 AstrBot 插件。
+version: v11.4.5
+author: 星见雅
+repo: ""
+support_platforms:
+  - aiocqhttp
+  - qq_official
+

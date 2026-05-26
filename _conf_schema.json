@@ -1,0 +1,155 @@
+{
+  "api_base_url": {
+    "description": "NewAPI 站点地址",
+    "type": "string",
+    "default": "",
+    "hint": "例如：https://api.example.com"
+  },
+  "api_key": {
+    "description": "NewAPI 管理员密钥",
+    "type": "string",
+    "default": "",
+    "is_password": true,
+    "hint": "需要具备用户查询和更新额度权限。"
+  },
+  "api_display_name": {
+    "description": "全局 API 显示名称",
+    "type": "string",
+    "default": "NewAPI",
+    "hint": "所有用户可见消息中的 API 名称，可改为任意名称。"
+  },
+  "admin_user_id": {
+    "description": "NewAPI 管理员用户 ID",
+    "type": "string",
+    "default": "1",
+    "hint": "用于请求头 New-Api-User。通常 Root 管理员为 1。"
+  },
+  "api_timeout_seconds": {
+    "description": "NewAPI 接口请求超时时间（秒）",
+    "type": "int",
+    "default": 30
+  },
+  "checkin_quota": {
+    "description": "每次签到增加的固定额度（checkin_quota_min/max 未设置时生效）",
+    "type": "int",
+    "default": 500000,
+    "hint": "当 checkin_quota_min 和 checkin_quota_max 都大于 0 时，签到额度将在两者之间随机。"
+  },
+  "target_quota": {
+    "description": "目标额度阈值，签到达到该阈值时自动扣除全部额度",
+    "type": "int",
+    "default": 0,
+    "hint": "当用户余额 >= 此值时，签到将扣除全部额度（归零）而不是增加额度。设为 0 关闭此功能。"
+  },
+  "penalty_quota": {
+    "description": "重复签到惩罚扣除额度",
+    "type": "int",
+    "default": 0,
+    "hint": "当日已签到过的用户再次发送 /签到 时，扣除该额度作为惩罚。设为 0 仅提示不扣额度。同样受 target_quota 影响。"
+  },
+  "checkin_quota_min": {
+    "description": "签到随机额度下限",
+    "type": "int",
+    "default": 0,
+    "hint": "设为 0 表示不使用随机额度。需与 checkin_quota_max 同时配置。"
+  },
+  "checkin_quota_max": {
+    "description": "签到随机额度上限",
+    "type": "int",
+    "default": 0,
+    "hint": "设为 0 表示不使用随机额度。最终额度在 min 和 max 之间随机取值（含两端）。"
+  },
+  "enable_daily_limit": {
+    "description": "是否限制每个 QQ 每天只能签到一次",
+    "type": "bool",
+    "default": true
+  },
+  "reset_hour": {
+    "description": "每日签到重置小时（北京时间 0-23）",
+    "type": "int",
+    "default": 0
+  },
+  "require_email_verification": {
+    "description": "是否启用邮箱验证码绑定",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后绑定流程无需邮箱验证码，/确认绑定 后直接完成绑定。"
+  },
+  "verification_expire_seconds": {
+    "description": "绑定验证码有效期（秒）",
+    "type": "int",
+    "default": 300
+  },
+  "auto_confirm_qq_email": {
+    "description": "当 NewAPI 邮箱等于 QQ号@qq.com 时自动确认并跳过验证直接绑定",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后匹配 QQ 邮箱时直接绑定成功，无需发送验证码。"
+  },
+  "quota_to_money_rate": {
+    "description": "额度转美元的汇率",
+    "type": "int",
+    "default": 500000,
+    "hint": "例如 500000 表示 500000 额度 = $1。"
+  },
+  "quota_symbol": {
+    "description": "额度显示符号",
+    "type": "string",
+    "default": "$",
+    "hint": "显示在数字前或后，如 $、¥、💎 等。"
+  },
+  "quota_symbol_position": {
+    "description": "额度符号位置",
+    "type": "string",
+    "default": "before",
+    "options": ["before", "after"],
+    "hint": "before 表示 $1.23，after 表示 1.23$。"
+  },
+  "smtp_host": {
+    "description": "SMTP 服务器地址",
+    "type": "string",
+    "default": "smtp.qq.com"
+  },
+  "smtp_port": {
+    "description": "SMTP 端口",
+    "type": "int",
+    "default": 465
+  },
+  "smtp_username": {
+    "description": "SMTP 用户名",
+    "type": "string",
+    "default": ""
+  },
+  "smtp_password": {
+    "description": "SMTP 密码或授权码",
+    "type": "string",
+    "default": "",
+    "is_password": true
+  },
+  "smtp_use_ssl": {
+    "description": "是否使用 SMTP SSL",
+    "type": "bool",
+    "default": true
+  },
+  "from_address": {
+    "description": "发件人邮箱地址",
+    "type": "string",
+    "default": ""
+  },
+  "from_display_name": {
+    "description": "发件人显示名称",
+    "type": "string",
+    "default": "AstrBot NewAPI 签到助手"
+  },
+  "verify_email_subject": {
+    "description": "绑定验证码邮件主题",
+    "type": "string",
+    "default": "NewAPI 账号绑定验证码"
+  },
+  "verify_email_template": {
+    "description": "绑定验证码邮件 HTML 模板",
+    "type": "text",
+    "default": "<p>您好，您正在通过 AstrBot 绑定 NewAPI 账号。</p><p>NewAPI 用户：<b>{username}</b>（ID: {user_id}）</p><p>验证码：<b style=\"font-size: 24px;\">{code}</b></p><p>验证码 {timeout_minutes} 分钟内有效。如非本人操作，请忽略此邮件。</p>",
+    "hint": "支持变量：{code}, {user_id}, {username}, {display_name}, {email}, {timeout_minutes}"
+  }
+}
