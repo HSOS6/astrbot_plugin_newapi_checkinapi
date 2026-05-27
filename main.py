@@ -63,8 +63,13 @@ class NewAPIClient:
             raise NewAPIError("NewAPI 地址、密钥或管理员用户 ID 未配置")
 
         url = f"{self.base_url}{path}"
+        logger.debug(f"[NewAPIClient] {method} {url}")
         try:
-            timeout = aiohttp.ClientTimeout(total=self.timeout)
+            timeout = aiohttp.ClientTimeout(
+                total=self.timeout,
+                connect=self.timeout,
+                sock_read=self.timeout,
+            )
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.request(
                     method,
@@ -75,6 +80,10 @@ class NewAPIClient:
                     raw_text = await response.text()
                     if response.status >= 400:
                         raise NewAPIError(f"HTTP {response.status}: {raw_text[:200]}")
+        except asyncio.TimeoutError as exc:
+            raise NewAPIError(
+                f"请求超时({self.timeout}秒)，请检查 API 地址和网络连接: {self.base_url}"
+            ) from exc
         except Exception as exc:
             raise NewAPIError(f"接口请求失败: {exc}") from exc
 
@@ -146,7 +155,7 @@ class NewAPIClient:
 
 
 @register(
-    "astrbot_plugin_newapi_checkin",
+    "astrbot_plugin_newapi_checkinapi",
     "星见雅",
     "NewAPI 邮箱验证码绑定与每日签到额度发放插件",
     "v11.4.5",
@@ -416,9 +425,17 @@ class NewAPICheckinProPlugin(Star):
             )
             return
 
-        yield event.plain_result(f"正在查询 {self.api_display_name} 用户信息...")
         try:
-            user = await self._query_user_for_binding(account)
+            user = await asyncio.wait_for(
+                self._query_user_for_binding(account),
+                timeout=self.api_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            yield event.plain_result(
+                f"查询 {self.api_display_name} 用户超时({self.api_timeout_seconds}秒)。"
+                f"请检查 API 地址和网络连接。"
+            )
+            return
         except Exception as exc:
             yield event.plain_result(f"查询失败：{exc}")
             return
@@ -437,6 +454,31 @@ class NewAPICheckinProPlugin(Star):
         qq_email = f"{qq_id}@qq.com"
         qq_email_match = email.lower() == qq_email.lower()
 
+        if self.auto_confirm_qq_email and qq_email_match:
+            self._save_binding(qq_id, user)
+            yield event.plain_result(
+                "绑定成功！\n"
+                f"API ID：{user_id}\n"
+                f"账号：{user.get('username') or user.get('display_name')}"
+            )
+            return
+
+        if not email:
+            yield event.plain_result(
+                f"该 {self.api_display_name} 账号未绑定邮箱，无法完成绑定。\n"
+                f"请先在 {self.api_display_name} 后台为账号绑定邮箱后再尝试绑定。"
+            )
+            return
+
+        if not self.require_email_verification:
+            self._save_binding(qq_id, user)
+            yield event.plain_result(
+                "绑定成功！\n"
+                f"API ID：{user_id}\n"
+                f"账号：{user.get('username') or user.get('display_name')}"
+            )
+            return
+
         self.pending_bindings[qq_id] = {
             "stage": "confirm",
             "user": user,
@@ -450,39 +492,15 @@ class NewAPICheckinProPlugin(Star):
             f"用户名：{user.get('username', '')}\n"
             f"显示名：{user.get('display_name', '')}\n"
         )
-        if not email:
-            info += "邮箱：（无绑定邮箱）\n\n⚠️ 该账号未绑定邮箱，无法完成绑定。"
-        else:
-            if self.require_email_verification:
-                info += f"邮箱：{self._mask_email(email)}\n"
-            info += (
-                f"当前额度：{self._format_quota(int(user.get('quota', 0) or 0))}\n"
-                f"QQ邮箱匹配：{'是' if qq_email_match else '否'}\n\n"
-                "确认无误请发送：/确认绑定\n"
-                "取消请发送：/取消绑定"
-            )
+        if self.require_email_verification:
+            info += f"邮箱：{self._mask_email(email)}\n"
+        info += (
+            f"当前额度：{self._format_quota(int(user.get('quota', 0) or 0))}\n"
+            f"QQ邮箱匹配：{'是' if qq_email_match else '否'}\n\n"
+            "确认无误请发送：/确认绑定\n"
+            "取消请发送：/取消绑定"
+        )
         yield event.plain_result(info)
-
-        if not email:
-            self.pending_bindings.pop(qq_id, None)
-            yield event.plain_result(
-                f"该 {self.api_display_name} 账号未绑定邮箱，无法完成绑定。\n"
-                f"请先在 {self.api_display_name} 后台为账号绑定邮箱后再尝试绑定。"
-            )
-            return
-
-        if not self.require_email_verification:
-            return
-
-        if self.auto_confirm_qq_email and qq_email_match:
-            self._save_binding(qq_id, user)
-            self.pending_bindings.pop(qq_id, None)
-            yield event.plain_result(
-                "绑定成功！\n"
-                f"API ID：{user_id}\n"
-                f"账号：{user.get('username') or user.get('display_name')}"
-            )
-            return
 
     @filter.command("确认绑定")
     async def confirm_bind(self, event: AstrMessageEvent):
@@ -603,7 +621,6 @@ class NewAPICheckinProPlugin(Star):
                 return
 
             user_id = int(binding.get("newapi_user_id", 0) or 0)
-            yield event.plain_result(f"正在签到并更新 {self.api_display_name} 账号额度...")
 
             user = await self.client.get_user(user_id)
             old_quota = int(user.get("quota", 0) or 0)
