@@ -1,4 +1,4 @@
-# astrbot_plugin_newapipro
+# astrbot_plugin_newapi_checkinapi
 
 NewAPI 邮箱验证码绑定与每日签到额度直充插件。
 
