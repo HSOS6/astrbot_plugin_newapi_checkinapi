@@ -47,6 +47,12 @@
     "default": 0,
     "hint": "当日已签到过的用户再次发送 /签到 时，扣除该额度作为惩罚。设为 0 仅提示不扣额度。同样受 target_quota 影响。"
   },
+  "unbind_cooldown_hours": {
+    "description": "解绑后冷却时间（小时），冷却期内不可重新绑定",
+    "type": "int",
+    "default": 72,
+    "hint": "解绑后需等待指定小时数才可绑定新账号，防止刷签到。设为 0 关闭冷却限制。"
+  },
   "checkin_quota_min": {
     "description": "签到随机额度下限",
     "type": "int",

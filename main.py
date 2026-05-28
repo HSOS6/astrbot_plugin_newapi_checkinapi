@@ -191,6 +191,8 @@ class NewAPICheckinProPlugin(Star):
         self.quota_symbol = str(config.get("quota_symbol", "$"))
         self.quota_symbol_position = str(config.get("quota_symbol_position", "before"))
 
+        self.unbind_cooldown_hours = int(config.get("unbind_cooldown_hours", 72))
+
         self.smtp_host = str(config.get("smtp_host", "smtp.qq.com"))
         self.smtp_port = int(config.get("smtp_port", 465))
         self.smtp_username = str(config.get("smtp_username", ""))
@@ -234,10 +236,12 @@ class NewAPICheckinProPlugin(Star):
                     data = json.load(f)
                 if isinstance(data, dict):
                     data.setdefault("bindings", {})
+                    data.setdefault("checkins", {})
+                    data.setdefault("unbinds", {})
                     return data
             except Exception as exc:
                 logger.error(f"[NewAPIPro] 读取状态文件失败: {exc}")
-        return {"bindings": {}}
+        return {"bindings": {}, "checkins": {}, "unbinds": {}}
 
     def _save_state(self) -> None:
         try:
@@ -286,8 +290,7 @@ class NewAPICheckinProPlugin(Star):
     def _can_checkin(self, qq_id: str) -> bool:
         if not self.enable_daily_limit:
             return True
-        binding = self.state.get("bindings", {}).get(qq_id, {})
-        last_checkin = int(binding.get("last_checkin", 0) or 0)
+        last_checkin = int(self.state.get("checkins", {}).get(qq_id, 0) or 0)
         if not last_checkin:
             return True
         last_time = datetime.fromtimestamp(last_checkin, BEIJING_TZ)
@@ -408,6 +411,17 @@ class NewAPICheckinProPlugin(Star):
         qq_id = str(event.get_sender_id())
         self._remove_expired_pending()
 
+        unbind_time = self.state.get("unbinds", {}).get(qq_id, 0)
+        if unbind_time:
+            elapsed_hours = (time.time() - unbind_time) / 3600
+            if elapsed_hours < self.unbind_cooldown_hours:
+                remaining_hours = int(self.unbind_cooldown_hours - elapsed_hours) + 1
+                yield event.plain_result(
+                    f"解绑后 {self.unbind_cooldown_hours} 小时内不可重新绑定。\n"
+                    f"还需等待约 {remaining_hours} 小时。"
+                )
+                return
+
         if not account:
             account = self._extract_bind_account(event.message_str)
 
@@ -508,6 +522,18 @@ class NewAPICheckinProPlugin(Star):
         event.stop_event()
         qq_id = str(event.get_sender_id())
         self._remove_expired_pending()
+
+        unbind_time = self.state.get("unbinds", {}).get(qq_id, 0)
+        if unbind_time:
+            elapsed_hours = (time.time() - unbind_time) / 3600
+            if elapsed_hours < self.unbind_cooldown_hours:
+                remaining_hours = int(self.unbind_cooldown_hours - elapsed_hours) + 1
+                yield event.plain_result(
+                    f"解绑后 {self.unbind_cooldown_hours} 小时内不可重新绑定。\n"
+                    f"还需等待约 {remaining_hours} 小时。"
+                )
+                return
+
         pending = self.pending_bindings.get(qq_id)
 
         if not pending or pending.get("stage") != "confirm":
@@ -631,6 +657,9 @@ class NewAPICheckinProPlugin(Star):
             else:
                 async for msg in self._apply_penalty(event, user, user_id, old_quota, binding):
                     yield msg
+
+            self.state.setdefault("checkins", {})[qq_id] = int(time.time())
+            self._save_state()
         except Exception as exc:
             yield event.plain_result(f"签到失败：{exc}")
             logger.error(f"[NewAPIPro] 签到失败 (QQ={qq_id}): {exc}", exc_info=True)
@@ -786,6 +815,7 @@ class NewAPICheckinProPlugin(Star):
         event.stop_event()
         qq_id = str(event.get_sender_id())
         if self.state.get("bindings", {}).pop(qq_id, None):
+            self.state.setdefault("unbinds", {})[qq_id] = int(time.time())
             self._save_state()
             self.pending_bindings.pop(qq_id, None)
             yield event.plain_result(f"已解绑 {self.api_display_name} 账号。")
