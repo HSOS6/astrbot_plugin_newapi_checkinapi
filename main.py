@@ -651,124 +651,75 @@ class NewAPICheckinProPlugin(Star):
             user = await self.client.get_user(user_id)
             old_quota = int(user.get("quota", 0) or 0)
 
-            if self._can_checkin(qq_id):
-                async for msg in self._apply_checkin(event, user, user_id, old_quota, binding):
-                    yield msg
-            else:
-                async for msg in self._apply_penalty(event, user, user_id, old_quota, binding):
-                    yield msg
+            can_checkin = self._can_checkin(qq_id)
 
-            self.state.setdefault("checkins", {})[qq_id] = int(time.time())
-            self._save_state()
+            if can_checkin:
+                if self.target_quota > 0 and old_quota >= self.target_quota:
+                    await self.client.decrease_user_quota(user_id, old_quota)
+                    updated_user = await self.client.get_user(user_id)
+                    new_quota = int(updated_user.get("quota", 0) or 0)
+                    self.state.setdefault("checkins", {})[qq_id] = int(time.time())
+                    self._save_state()
+                    yield event.plain_result(
+                        "签到成功！已达到目标额度，已将全部额度扣除。\n"
+                        f"账号：{user.get('username') or user.get('display_name') or user_id}\n"
+                        f"扣除额度：{self._format_quota(old_quota)}\n"
+                        f"现额度：{self._format_quota(new_quota)}"
+                    )
+                    return
+
+                if self._use_random_quota:
+                    actual_quota = random.randint(self.checkin_quota_min, self.checkin_quota_max)
+                else:
+                    actual_quota = self.checkin_quota
+
+                await self.client.increase_user_quota(user_id, actual_quota)
+                updated_user = await self.client.get_user(user_id)
+                new_quota = int(updated_user.get("quota", 0) or 0)
+                self.state.setdefault("checkins", {})[qq_id] = int(time.time())
+                self._save_state()
+                yield event.plain_result(
+                    "签到成功！\n"
+                    f"账号：{user.get('username') or user.get('display_name') or user_id}\n"
+                    f"增加额度：{self._format_quota(actual_quota)}\n"
+                    f"原额度：{self._format_quota(old_quota)}\n"
+                    f"现额度：{self._format_quota(new_quota)}"
+                )
+            else:
+                if self.target_quota > 0 and old_quota >= self.target_quota:
+                    await self.client.decrease_user_quota(user_id, old_quota)
+                    updated_user = await self.client.get_user(user_id)
+                    new_quota = int(updated_user.get("quota", 0) or 0)
+                    self.state.setdefault("checkins", {})[qq_id] = int(time.time())
+                    self._save_state()
+                    yield event.plain_result(
+                        "重复签到！已达到目标额度，已将全部额度扣除。\n"
+                        f"账号：{user.get('username') or user.get('display_name') or user_id}\n"
+                        f"扣除额度：{self._format_quota(old_quota)}\n"
+                        f"现额度：{self._format_quota(new_quota)}"
+                    )
+                    return
+
+                if self.penalty_quota > 0:
+                    actual_penalty = min(self.penalty_quota, old_quota)
+                    await self.client.decrease_user_quota(user_id, actual_penalty)
+                    updated_user = await self.client.get_user(user_id)
+                    new_quota = int(updated_user.get("quota", 0) or 0)
+                    self.state.setdefault("checkins", {})[qq_id] = int(time.time())
+                    self._save_state()
+                    yield event.plain_result(
+                        "重复签到！已扣除惩罚额度。\n"
+                        f"账号：{user.get('username') or user.get('display_name') or user_id}\n"
+                        f"扣除额度：{self._format_quota(actual_penalty)}\n"
+                        f"现额度：{self._format_quota(new_quota)}"
+                    )
+                else:
+                    yield event.plain_result(f"今天已经签到过了。\n下次可签到时间：{self._next_reset_text()}")
         except Exception as exc:
             yield event.plain_result(f"签到失败：{exc}")
             logger.error(f"[NewAPIPro] 签到失败 (QQ={qq_id}): {exc}", exc_info=True)
         finally:
             self.processing_users.discard(qq_id)
-
-    async def _apply_checkin(self, event: AstrMessageEvent, user: Dict[str, Any], user_id: int, old_quota: int, binding: Dict[str, Any]):
-        if self.target_quota > 0 and old_quota >= self.target_quota:
-            await self.client.decrease_user_quota(user_id, old_quota)
-            updated_user = await self.client.get_user(user_id)
-            new_quota = int(updated_user.get("quota", 0) or 0)
-
-            binding.update(
-                {
-                    "username": str(user.get("username", binding.get("username", ""))),
-                    "display_name": str(user.get("display_name", binding.get("display_name", ""))),
-                    "email": str(user.get("email", binding.get("email", ""))),
-                    "last_checkin": int(time.time()),
-                    "last_quota_added": 0,
-                }
-            )
-            self._save_state()
-
-            yield event.plain_result(
-                "签到成功！已达到目标额度，已将全部额度扣除。\n"
-                f"账号：{user.get('username') or user.get('display_name') or user_id}\n"
-                f"扣除额度：{self._format_quota(old_quota)}\n"
-                f"现额度：{self._format_quota(new_quota)}"
-            )
-            return
-
-        if self._use_random_quota:
-            actual_quota = random.randint(self.checkin_quota_min, self.checkin_quota_max)
-        else:
-            actual_quota = self.checkin_quota
-
-        await self.client.increase_user_quota(user_id, actual_quota)
-        updated_user = await self.client.get_user(user_id)
-        new_quota = int(updated_user.get("quota", 0) or 0)
-
-        binding.update(
-            {
-                "username": str(user.get("username", binding.get("username", ""))),
-                "display_name": str(user.get("display_name", binding.get("display_name", ""))),
-                "email": str(user.get("email", binding.get("email", ""))),
-                "last_checkin": int(time.time()),
-                "last_quota_added": actual_quota,
-            }
-        )
-        self._save_state()
-
-        yield event.plain_result(
-            "签到成功！\n"
-            f"账号：{user.get('username') or user.get('display_name') or user_id}\n"
-            f"增加额度：{self._format_quota(actual_quota)}\n"
-            f"原额度：{self._format_quota(old_quota)}\n"
-            f"现额度：{self._format_quota(new_quota)}"
-        )
-
-    async def _apply_penalty(self, event: AstrMessageEvent, user: Dict[str, Any], user_id: int, old_quota: int, binding: Dict[str, Any]):
-        if self.target_quota > 0 and old_quota >= self.target_quota:
-            await self.client.decrease_user_quota(user_id, old_quota)
-            updated_user = await self.client.get_user(user_id)
-            new_quota = int(updated_user.get("quota", 0) or 0)
-
-            binding.update(
-                {
-                    "username": str(user.get("username", binding.get("username", ""))),
-                    "display_name": str(user.get("display_name", binding.get("display_name", ""))),
-                    "email": str(user.get("email", binding.get("email", ""))),
-                    "last_checkin": int(time.time()),
-                    "last_quota_added": 0,
-                }
-            )
-            self._save_state()
-
-            yield event.plain_result(
-                "重复签到！已达到目标额度，已将全部额度扣除。\n"
-                f"账号：{user.get('username') or user.get('display_name') or user_id}\n"
-                f"扣除额度：{self._format_quota(old_quota)}\n"
-                f"现额度：{self._format_quota(new_quota)}"
-            )
-            return
-
-        if self.penalty_quota > 0:
-            actual_penalty = min(self.penalty_quota, old_quota)
-            await self.client.decrease_user_quota(user_id, actual_penalty)
-            updated_user = await self.client.get_user(user_id)
-            new_quota = int(updated_user.get("quota", 0) or 0)
-
-            binding.update(
-                {
-                    "username": str(user.get("username", binding.get("username", ""))),
-                    "display_name": str(user.get("display_name", binding.get("display_name", ""))),
-                    "email": str(user.get("email", binding.get("email", ""))),
-                    "last_checkin": int(time.time()),
-                    "last_quota_added": -actual_penalty,
-                }
-            )
-            self._save_state()
-
-            yield event.plain_result(
-                "重复签到！已扣除惩罚额度。\n"
-                f"账号：{user.get('username') or user.get('display_name') or user_id}\n"
-                f"扣除额度：{self._format_quota(actual_penalty)}\n"
-                f"现额度：{self._format_quota(new_quota)}"
-            )
-        else:
-            yield event.plain_result(f"今天已经签到过了。\n下次可签到时间：{self._next_reset_text()}")
 
     @filter.command("我的账号", alias={"账号信息"})
     async def my_account(self, event: AstrMessageEvent):
